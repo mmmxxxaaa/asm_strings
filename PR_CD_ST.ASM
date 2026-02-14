@@ -6,7 +6,7 @@ command_string_len_addr         equ 80h
 command_string_text_addr        equ 81h
 max_number_of_symbols_in_string equ 80
 max_number_of_symbols_in_column equ 26
-
+color_attr_green				equ 02h
 
 Start:
 			call GetCommandLine
@@ -18,7 +18,7 @@ Start:
 
 			call ClearScreen
 			pop cx
-			mov ah, 6Ch			; giving attribute
+			mov ah, color_attr_green			; giving attribute
 
 			call CalculateCenteredPosition
 
@@ -59,7 +59,7 @@ GetCommandLine proc
 			jmp @@skip_spaces
 
 @@no_space:
-			cmp cx, 0
+			cmp cx, 0 		; мб убрать проверку, она не нужна
 			je @@empty
 
 			clc 			;CF=0 - success
@@ -98,7 +98,7 @@ CalculateCenteredPosition proc
 			mov ax, max_number_of_symbols_in_string ;AX = 80
         	sub ax, cx                				;AX = 80 - length
         	shr ax, 1                				;AX = (80 - length)/2
-			mov dx, ax               ; dx = number of the first symbol's column
+			mov dx, ax               				; dx = number of the first symbol's column
 			push dx
 			mov ax, 24 / 2
 			mov bx, max_number_of_symbols_in_string
@@ -155,9 +155,7 @@ DrawBox proc
 			mov cx, dx
 			sub cx, bx
 			inc cx			; CX = number of symbols in string
-
 			mov si, bx		; SI = current column
-
 @@top_loop:
 			mov al, '-'
 			cmp si, bx
@@ -165,10 +163,10 @@ DrawBox proc
 			cmp si, dx
 			je @@top_corner
 			jmp @@top_write
-
 @@top_corner:
 			mov al, '+'
 @@top_write:
+			mov ah, color_attr_green
 			stosw
 			inc si
 			loop @@top_loop
@@ -207,6 +205,7 @@ DrawBox proc
 @@bottom_corner:
 			mov al, '+'
 @@bottom_write:
+			mov ah, color_attr_green
 			stosw
 			inc si
 			loop @@bottom_loop
@@ -225,6 +224,7 @@ DrawBox proc
 			shl ax, 1
 			mov di, ax
 			mov al, '|'
+			mov ah, 02
 			stosw
 
 			; --- drawing right vertical ---
@@ -238,8 +238,8 @@ DrawBox proc
 			add ax, cx
 			shl ax, 1
 			mov di, ax
-
 			mov al, '|'
+			mov ah, color_attr_green
 			stosw
 
 			pop si
@@ -260,7 +260,7 @@ DrawBox endp
 PrintString proc
 @@loop:
 			mov al, [si]
-			stosw            ;ES:[DI+=2] = AX
+			stosw            ;ES:[DI] = AX ; add DI, 2; и так кучу раз, пока cx !=0
 			inc si
 			loop @@loop
 			ret
