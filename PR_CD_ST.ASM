@@ -24,10 +24,23 @@ Start:
 
 			push di				; needed after drawing box
 
-			call DrawBox
+			; ~~~ cdecl style ~~~~~~~~~~~~~~~~~
+			push es			; 4th arg
+			push ax			; 3rd arg
+			push dx			; 2nd arg
+			push cx			; 1st arg
+			call DrawBox_cdecl
+			add sp, 8		; cleaning stack
+			; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			pop di
-			call PrintString
 
+			; ~~~ pascal style ~~~~~~~~~~~~~~~~
+			push si
+			push cx
+			push di
+			push ax
+			call PrintString_pascal
+			; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Exit:		mov ax, 4C00h
 			int 21h
 
@@ -59,9 +72,6 @@ GetCommandLine proc
 			jmp @@skip_spaces
 
 @@no_space:
-			cmp cx, 0 		; мб убрать проверку, она не нужна
-			je @@empty
-
 			clc 			;CF=0 - success
 			ret
 
@@ -119,9 +129,18 @@ CalculateCenteredPosition endp
 ; Expected:    DF = 0 (address increments)
 ; Destr:	   AX, BX, DX, DI, SI
 ;--------------------------------------------------------------------------------
-DrawBox proc
+DrawBox_cdecl proc
+			push bp
+			mov bp, sp
 			push cx
 			push si
+
+			mov cx, [bp+4]	;length
+			mov dx, [bp+6]	;column
+			mov ax, [bp+8]	; attribute
+			mov es, [bp+10] ; videosegment
+
+			mov bh, ah   ;saving attribute
 
 			mov bx, dx
 			dec bx
@@ -138,9 +157,9 @@ DrawBox proc
 			push bx
 			push dx
 
+			;---top line---
 			mov ax, 11
 			mov cx, bx
-
 			mov bx, 80
 			mul bx
 			add ax, cx
@@ -171,7 +190,7 @@ DrawBox proc
 			inc si
 			loop @@top_loop
 
-			; ---- Drawing bottom line ----
+			; ---- bottom line ----
 			pop dx
 			pop bx
 			push bx
@@ -210,7 +229,7 @@ DrawBox proc
 			inc si
 			loop @@bottom_loop
 
-			; --- drawing left vertical ---
+			; --- left vertical ---
 			pop dx
 			pop bx
 			push bx
@@ -227,7 +246,7 @@ DrawBox proc
 			mov ah, 02
 			stosw
 
-			; --- drawing right vertical ---
+			; --- right vertical ---
 			pop dx
 			pop bx
 
@@ -244,8 +263,9 @@ DrawBox proc
 
 			pop si
 			pop cx
+			pop bp
 			ret
-DrawBox endp
+DrawBox_cdecl endp
 
 
 ;-------------------------------------------------------------------------------
@@ -257,13 +277,23 @@ DrawBox endp
 ; Expected:    DF = 0 (address increments)
 ; Destr:	   AX, DI
 ;--------------------------------------------------------------------------------
-PrintString proc
+PrintString_pascal proc
+			push bp
+			mov bp, sp
+
+			mov si, [bp+10]
+			mov cx, [bp+8]
+			mov di, [bp+6]
+			mov ax, [bp+4]
+
 @@loop:
 			mov al, [si]
 			stosw            ;ES:[DI] = AX ; add DI, 2; и так кучу раз, пока cx !=0
 			inc si
 			loop @@loop
-			ret
-PrintString endp
+
+			pop bp
+			ret 8
+PrintString_pascal endp
 
 end 			Start
