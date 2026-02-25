@@ -1,3 +1,4 @@
+Почему прога выводит только верхнюю часть рамки
 .model tiny
 .code
 org 100h
@@ -7,6 +8,7 @@ command_string_text_addr        equ 81h
 max_number_of_symbols_in_string equ 80
 max_number_of_symbols_in_column equ 26
 color_attr_green				equ 02h
+n_of_layers						equ 3
 
 Start:
 			call GetCommandLine
@@ -15,15 +17,16 @@ Start:
 			push cx
 			mov ax, 0b800h
 			mov es, ax
-
 			call ClearScreen
 			pop cx
-			mov ah, color_attr_green			; giving attribute
 
+			mov ah, color_attr_green			; giving attribute
+			push ax
 			call CalculateCenteredPosition
+			pop ax
 
 			push di				; needed after drawing box
-
+			push si
 			; ~~~ cdecl style ~~~~~~~~~~~~~~~~~
 			push es			; 4th arg
 			push ax			; 3rd arg
@@ -32,7 +35,9 @@ Start:
 			call DrawBox_cdecl
 			add sp, 8		; cleaning stack
 			; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			pop si
 			pop di
+			mov ah, color_attr_green
 
 			; ~~~ pascal style ~~~~~~~~~~~~~~~~
 			push si
@@ -41,6 +46,8 @@ Start:
 			push ax
 			call PrintString_pascal
 			; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			mov ah, 00h
+			int 16h
 Exit:		mov ax, 4C00h
 			int 21h
 
@@ -60,7 +67,6 @@ GetCommandLine proc
 			mov ch, 0					;CX = length
 			cmp cl, 0
 			je @@empty
-
 			inc si
 @@skip_spaces:
 			cmp byte ptr [si], ' '
@@ -70,16 +76,13 @@ GetCommandLine proc
 			cmp cx, 0
 			je @@empty
 			jmp @@skip_spaces
-
 @@no_space:
 			clc 			;CF=0 - success
 			ret
-
 @@empty:
 			stc				; CF=1 - empty string
 			ret
 GetCommandLine endp
-
 ;-------------------------------------------------------------------------------
 ; Description: Fills with spaces all videomemory in text mode, cleaning screens
 ; Entry: 	   ES - videomemory segment
@@ -94,7 +97,6 @@ ClearScreen proc
 			rep stosw			; writing ax into es:[di+=2] CX times
 			ret
 ClearScreen endp
-
 ;-------------------------------------------------------------------------------
 ; Description: Calculates offset in videomemory offset in bytes
 ;			   to print string with length=CX in the center of screen
@@ -106,9 +108,9 @@ ClearScreen endp
 ;--------------------------------------------------------------------------------
 CalculateCenteredPosition proc
 			mov ax, max_number_of_symbols_in_string ;AX = 80
-        	sub ax, cx                				;AX = 80 - length
-        	shr ax, 1                				;AX = (80 - length)/2
-			mov dx, ax               				; dx = number of the first symbol's column
+			sub ax, cx
+			shr ax, 1
+			mov dx, ax  		;dx = number of the first symbol's column
 			push dx
 			mov ax, 24 / 2
 			mov bx, max_number_of_symbols_in_string
@@ -119,12 +121,12 @@ CalculateCenteredPosition proc
 			mov di, ax
 			ret
 CalculateCenteredPosition endp
-
-
 ;-------------------------------------------------------------------------------
 ; Description: Drawing box around string
-; Entry: 	   CX = string length, DX = starting column
-;			   AH = symbol attribute, ES = vidememory segment
+; Entry: 	    [bp+4]	length
+				[bp+6]	column
+				[bp+8]	attribute
+				[bp+10] videosegment
 ; Exit:        Box drown
 ; Expected:    DF = 0 (address increments)
 ; Destr:	   AX, BX, DX, DI, SI
@@ -134,47 +136,88 @@ DrawBox_cdecl proc
 			mov bp, sp
 			push cx
 			push si
+			push bx
+			push di
 
 			mov cx, [bp+4]	;length
 			mov dx, [bp+6]	;column
 			mov ax, [bp+8]	; attribute
 			mov es, [bp+10] ; videosegment
 
-			mov bh, ah   ;saving attribute
+			mov bh, ah   		;saving attribute
 
-			mov bx, dx
-			dec bx
+			mov bx, dx			; left = given column
+			add dx, cx
+			dec dx				; right = left + length - 1
+
 			cmp bx, 0
 			jge @@left_ok
 			xor bx, bx
 @@left_ok:
-			add dx, cx
 			cmp dx, 79
 			jle @@right_ok
 			mov dx, 79
-@@right_ok:	;BX = left, DX = right
+@@right_ok:						; BX = left, DX = right
 
+			mov si, 11
+			mov di, 13
+
+			mov cx, n_of_layers ; cx = total number of layers
+			xor bp, bp			; bp = counter of layers (0, 1, 2)
+@@layer_loop:
+			push cx
 			push bx
 			push dx
+			push si
+			push di
 
-			;---top line---
-			mov ax, 11
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax 		; DI = top left address
-
-			pop dx
-			pop bx
-			push bx
+								; extending granitsi for now layer (bp)
+			mov ax, bx			;
+			sub ax, bp
+			cmp ax, 0
+			jge @@l_ok
+			xor ax, ax
+@@l_ok:
+			mov bx, ax			; new left granitsa
+			mov ax, dx
+			add ax, bp
+			cmp ax, 79
+			jle @@r_ok
+			mov ax, 79
+@@r_ok:
+			mov dx, ax			; new_right granitsa
+			mov ax, si
+			sub ax, bp
+			cmp ax, 0
+			jge @@t_ok
+			xor ax, ax
+@@t_ok:
+			mov si, ax			; new up granitsa
+			mov ax, di
+			add ax, bp
+			cmp ax, 24
+			jle @@b_ok
+			mov ax, 24
+@@b_ok:
+			mov di, ax			; new down granitsa
+			push bx				; saving new granitsi on stack
 			push dx
+			push si
+			push di
 
-			mov cx, dx
+			; --- top line ---
+			mov cx, dx			; calculating length of top line
 			sub cx, bx
-			inc cx			; CX = number of symbols in string
-			mov si, bx		; SI = current column
+			inc cx
+			push cx
+			mov ax, si
+			mov cx, 80
+			mul cx
+			add ax, bx
+			shl ax, 1
+			mov di, ax			; di = videomemory addres
+			pop cx
+			mov si, bx
 @@top_loop:
 			mov al, '-'
 			cmp si, bx
@@ -190,30 +233,29 @@ DrawBox_cdecl proc
 			inc si
 			loop @@top_loop
 
-			; ---- bottom line ----
+			pop di			;removing saved granitsi from stack
+			pop si
 			pop dx
 			pop bx
+
+			; ---- bottom line ----
 			push bx
 			push dx
-
-			mov ax, 13
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax
-
-			pop dx
-            pop bx
-            push bx
-            push dx
+			push si
+			push di
 
 			mov cx, dx
 			sub cx, bx
 			inc cx
-			mov si, bx		;SI = left
-
+			push cx
+			mov ax, di
+			mov cx, 80
+			mul cx
+			add ax, bx
+			shl ax, 1
+			mov di, ax
+			pop cx
+			mov si, bx
 @@bottom_loop:
 			mov al, '-'
 			cmp si, bx
@@ -224,43 +266,74 @@ DrawBox_cdecl proc
 @@bottom_corner:
 			mov al, '+'
 @@bottom_write:
-			mov ah, color_attr_green
+			mov ah, bh
 			stosw
 			inc si
 			loop @@bottom_loop
 
-			; --- left vertical ---
+			pop di
+			pop si
 			pop dx
 			pop bx
+
+			; --- left vertical ---
+			mov ax, si
+			inc ax
+			cmp ax, di
+			jge @@skip_vertical
+
 			push bx
 			push dx
+			push si
+			push di
+			mov si, ax
+			mov cx, di
+			sub cx, si
 
-			mov ax, 12
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
+@@vert_loop:
+			push cx				;saving counter of strings
+			;--- left vertical ---
+			mov ax, si
+			mov cx, 80
+			mul cx
+			add ax, bx			; column = left granitsa
 			shl ax, 1
 			mov di, ax
 			mov al, '|'
-			mov ah, 02
+			mov ah, bh
+			stosw
+			;--- right vertical ---
+			mov ax, si
+			mov cx, 80
+			mul cx
+			add ax, dx			; column = right granitsa
+			shl ax, 1
+			mov di, ax
+			mov al, '|'
+			mov ah, bh
 			stosw
 
-			; --- right vertical ---
+			pop cx
+			inc si
+			loop @@vert_loop
+			pop di
+			pop si
 			pop dx
 			pop bx
+@@skip_vertical:
+			pop di
+			pop si
+			pop dx
+			pop bx
+			pop cx
+			inc bp
+			dec cx
+			jz  @@end_layer_loop
+			jmp @@layer_loop
 
-			mov ax, 12
-			mov cx, dx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax
-			mov al, '|'
-			mov ah, color_attr_green
-			stosw
-
+@@end_layer_loop:
+			pop di
+			pop bx
 			pop si
 			pop cx
 			pop bp
