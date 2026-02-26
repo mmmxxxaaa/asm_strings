@@ -2,6 +2,8 @@
 .code
 org 100h
 
+locals @@
+
 BOX_TOP_LEFT     equ 0C9h   ; ╔
 BOX_TOP_RIGHT    equ 0BBh   ; ╗
 BOX_BOTTOM_LEFT  equ 0C8h   ; ╚
@@ -17,7 +19,7 @@ color_attr_green				equ 02h
 
 Start:
 			call GetCommandLine
-			jc Exit				;CF = 1 => empty string
+			jc Exit								;CF = 1 => empty string
 
 			push cx
 			mov ax, 0b800h
@@ -26,6 +28,7 @@ Start:
 			call ClearScreen
 			pop cx
 			mov ah, color_attr_green			; giving attribute
+			push ax
 
 			call CalculateCenteredPosition
 
@@ -41,6 +44,7 @@ Start:
 			; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			pop di
 
+			pop ax
 			; ~~~ pascal style ~~~~~~~~~~~~~~~~
 			push si
 			push cx
@@ -126,12 +130,10 @@ CalculateCenteredPosition proc
 			mov di, ax
 			ret
 CalculateCenteredPosition endp
-
-
 ;-------------------------------------------------------------------------------
 ; Description: Drawing box around string
 ; Entry: 	   CX = string length, DX = starting column
-;			   AH = symbol attribute, ES = vidememory segment
+;			   AH = symbol attribute, ES = videomemory segment
 ; Exit:        Box drown
 ; Expected:    DF = 0 (address increments)
 ; Destr:	   AX, BX, DX, DI, SI
@@ -142,12 +144,12 @@ DrawBox_cdecl proc
 			push cx
 			push si
 
-			mov cx, [bp+4]	;length
-			mov dx, [bp+6]	;column
+			mov cx, [bp+4]	; length
+			mov dx, [bp+6]	; column
 			mov ax, [bp+8]	; attribute
 			mov es, [bp+10] ; videosegment
 
-			mov bh, ah   ;saving attribute
+			mov bh, ah      ;saving attribute
 
 			mov bx, dx
 			dec bx
@@ -161,119 +163,17 @@ DrawBox_cdecl proc
 			mov dx, 79
 @@right_ok:	;BX = left, DX = right
 
-			push bx
-			push dx
+			mov al, 11					; номер строки
+			call DrawTopLine
 
-			;---top line---
-			mov ax, 11
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax 		; DI = top left address
+			mov al, 13
+			call DrawBottomLine
 
-			pop dx
-			pop bx
-			push bx
-			push dx
+			mov al, 12
+			call DrawLeftColumn
 
-			mov cx, dx
-			sub cx, bx
-			inc cx			; CX = number of symbols in string
-			mov si, bx		; SI = current column
-@@top_loop:
-			mov al, BOX_HORIZ
-
-			cmp si, bx
-			je @@top_corner_left
-			cmp si, dx
-			je @@top_corner_right
-			jmp @@top_write
-@@top_corner_left:
-			mov al, BOX_TOP_LEFT
-			jmp @@top_write
-@@top_corner_right:
-			mov al, BOX_TOP_RIGHT
-@@top_write:
-			mov ah, color_attr_green
-			stosw
-			inc si
-			loop @@top_loop
-
-			; ---- bottom line ----
-			pop dx
-			pop bx
-			push bx
-			push dx
-
-			mov ax, 13
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax
-
-			pop dx
-            pop bx
-            push bx
-            push dx
-
-			mov cx, dx
-			sub cx, bx
-			inc cx
-			mov si, bx		;SI = left
-
-@@bottom_loop:
-			mov al, BOX_HORIZ
-			cmp si, bx
-			je @@bottom_corner_left
-			cmp si, dx
-			je @@bottom_corner_right
-			jmp @@bottom_write
-@@bottom_corner_left:
-			mov al, BOX_BOTTOM_LEFT
-			jmp @@bottom_write
-@@bottom_corner_right:
-			mov al, BOX_BOTTOM_RIGHT
-@@bottom_write:
-			mov ah, color_attr_green
-			stosw
-			inc si
-			loop @@bottom_loop
-
-			; --- left vertical ---
-			pop dx
-			pop bx
-			push bx
-			push dx
-
-			mov ax, 12
-			mov cx, bx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax
-			mov al, BOX_VERT
-			mov ah, color_attr_green
-			stosw
-
-			; --- right vertical ---
-			pop dx
-			pop bx
-
-			mov ax, 12
-			mov cx, dx
-			mov bx, 80
-			mul bx
-			add ax, cx
-			shl ax, 1
-			mov di, ax
-			mov al, BOX_VERT
-			mov ah, color_attr_green
-			stosw
+			mov al, 12
+			call DrawRightColumn
 
 			pop si
 			pop cx
@@ -281,6 +181,174 @@ DrawBox_cdecl proc
 			ret
 DrawBox_cdecl endp
 
+;-------------------------------------------------------------------------------
+; Description: Draws top border of the box (line 11)
+; Entry: 	   AL = row number (11), BX = left column, DX = right column,
+;			   ES = videosegment, AH = attribute (not used in this version,
+;			   but kept for consistency with original code)
+; Exit:        top border drawn
+; Destr:	   AX, CX, DI, SI
+;--------------------------------------------------------------------------------
+DrawTopLine proc
+			push bx
+			push dx
+			push ax
+
+			mov cx, dx
+			sub cx, bx
+			inc cx			; CX = number of symbols in line
+			mov si, bx		; SI = current column
+
+			pop ax			; restore row number (11)
+			push ax
+			push dx
+
+			mov ah, 0
+			mov di, ax
+			mov ax, 80
+			mul di			; AX = row * 80
+			pop dx
+			add ax, bx
+			shl ax, 1
+			mov di, ax		; DI = offset in video memory
+
+@@loop:
+			mov al, BOX_HORIZ
+			cmp si, bx
+			je @@corner_left
+			cmp si, dx
+			je @@corner_right
+			jmp @@write
+@@corner_left:
+			mov al, BOX_TOP_LEFT
+			jmp @@write
+@@corner_right:
+			mov al, BOX_TOP_RIGHT
+@@write:
+			mov ah, color_attr_green
+			stosw
+			inc si
+			loop @@loop
+
+			pop ax
+			pop dx
+			pop bx
+			ret
+DrawTopLine endp
+
+;-------------------------------------------------------------------------------
+; Description: Draws bottom border of the box (line 13)
+; Entry: 	   AL = row number (13), BX = left column, DX = right column,
+;			   ES = videosegment, AH = attribute (not used)
+; Exit:        bottom border drawn
+; Destr:	   AX, CX, DI, SI
+;--------------------------------------------------------------------------------
+DrawBottomLine proc
+			push bx
+			push dx
+			push ax
+
+			mov cx, dx
+			sub cx, bx
+			inc cx
+			mov si, bx
+
+			pop ax
+			push ax
+
+			push dx
+
+			mov ah, 0
+			mov di, ax
+			mov ax, 80
+			mul di
+			pop dx
+			add ax, bx
+			shl ax, 1
+			mov di, ax
+
+@@loop:
+			mov al, BOX_HORIZ
+			cmp si, bx
+			je @@corner_left
+			cmp si, dx
+			je @@corner_right
+			jmp @@write
+@@corner_left:
+			mov al, BOX_BOTTOM_LEFT
+			jmp @@write
+@@corner_right:
+			mov al, BOX_BOTTOM_RIGHT
+@@write:
+			mov ah, color_attr_green
+			stosw
+			inc si
+			loop @@loop
+
+			pop ax
+			pop dx
+			pop bx
+			ret
+DrawBottomLine endp
+
+;-------------------------------------------------------------------------------
+; Description: Draws left vertical column (single symbol) at row AL, column BX
+; Entry: 	   AL = row number (12), BX = left column,
+;			   ES = videosegment, AH = attribute (not used)
+; Exit:        left column drawn
+; Destr:	   AX, DI
+;--------------------------------------------------------------------------------
+DrawLeftColumn proc
+			push bx
+			push dx
+			push ax
+
+			mov ah, 0
+			mov di, ax
+			mov ax, 80
+			mul di			; AX = row * 80
+			add ax, bx
+			shl ax, 1
+			mov di, ax
+
+			mov al, BOX_VERT
+			mov ah, color_attr_green
+			stosw
+
+			pop ax
+			pop dx
+			pop bx
+			ret
+			endp
+
+;-------------------------------------------------------------------------------
+; Description: Draws right vertical marker (single symbol) at row AL, column DX
+; Entry: 	   AL = row number (12), DX = right column,
+;			   ES = videosegment, AH = attribute (not used)
+; Exit:        right marker drawn
+; Destr:	   AX, DI
+;--------------------------------------------------------------------------------
+DrawRightColumn proc
+			push dx
+			push ax
+			mov bx, dx
+
+			mov ah, 0
+			mov di, ax
+			mov ax, 80
+			mul di
+			add ax, bx
+			shl ax, 1
+			mov di, ax
+
+			mov al, BOX_VERT
+			mov ah, color_attr_green
+			stosw
+
+			pop ax
+			pop dx
+			ret
+			endp
 
 ;-------------------------------------------------------------------------------
 ; Description: Prints string with attribute
