@@ -17,14 +17,39 @@ max_number_of_symbols_in_string equ 80
 max_number_of_symbols_in_column equ 26
 color_attr_green				equ 02h
 
+;//FIXME если не найдется символ, то используются стандартные рамки, иначе символ, который идет после заданного символа
+;//FIXME
 Start:
 			call GetCommandLine
 			jc Exit								;CF = 1 => empty string
 
 			push cx
+			push si
+
+			mov al, '/' ;//про***бал кучу времени на дебаге того, что '|' воспринимается как оператор перенаправления
+			call StrChr
+
+			pop si
+			pop bx
+
+			cmp cx, bx
+			jne @@found_user_frame_char
+
+			mov byte ptr [user_frame_char], 0
+			mov cx, bx
+			jmp @@continue
+
+@@found_user_frame_char:
+            mov di, si          ; копируем адрес начала строки
+            add di, cx          ; теперь DI указывает на символ после разделителя
+            mov al, [di]        ; читаем символ рамки
+            mov [user_frame_char], al ;//FIXME
+            dec cx              ; уменьшаем длину строки (убираем разделитель и символ)
+
+@@continue:
+			push cx
 			mov ax, 0b800h
 			mov es, ax
-
 			call ClearScreen
 			pop cx
 			mov ah, color_attr_green			; giving attribute
@@ -92,6 +117,29 @@ GetCommandLine proc
 GetCommandLine endp
 
 ;-------------------------------------------------------------------------------
+; Поиск символа в строке (аргументы через регистры)
+; Вход: DS:SI – строка, CX – длина, AL – искомый символ
+; Выход: CX = позиция+1 (если найден) или исходная длина (если не найден)
+; Испорчено: DI, BX
+;-------------------------------------------------------------------------------
+StrChr proc
+            push bx
+            mov bx, cx          ; сохраняем исходную длину
+            mov di, si
+            cld
+            repne scasb
+            jnz @@not_found		; найден: CX = остаток, позиция+1 = исходная длина - остаток
+            sub bx, cx
+            mov cx, bx
+            pop bx
+            ret
+@@not_found:
+            mov cx, bx
+            pop bx
+            ret
+StrChr endp
+
+;-------------------------------------------------------------------------------
 ; Description: Fills with spaces all videomemory in text mode, cleaning screens
 ; Entry: 	   ES - videomemory segment
 ; Exit:        screen is clean
@@ -130,6 +178,7 @@ CalculateCenteredPosition proc
 			mov di, ax
 			ret
 CalculateCenteredPosition endp
+
 ;-------------------------------------------------------------------------------
 ; Description: Drawing box around string
 ; Entry: 	   CX = string length, DX = starting column
@@ -172,10 +221,11 @@ DrawBox_cdecl proc
 			call DrawHorizontalBorder   ; нижняя граница
 
 			mov al, 12
-			call DrawLeftColumn
+			call DrawVertBorder
 
 			mov al, 12
-			call DrawRightColumn
+			mov bx, dx
+			call DrawVertBorder
 
 			pop si
 			pop cx
@@ -191,6 +241,8 @@ DrawBox_cdecl endp
 ; Exit:        border drawn
 ; Destr:	   AX, CX, DI, SI
 ;-------------------------------------------------------------------------------
+;//FIXME как не через [bp+...]
+;//FIXME на эту функцию особое внимание
 DrawHorizontalBorder proc
 			push bx
 			push dx
@@ -216,29 +268,35 @@ DrawHorizontalBorder proc
 			mov di, ax		; DI = offset in video memory
 
 @@loop:
+			cmp [user_frame_char], 0
+			jne @@use_user_char
+
 			mov al, BOX_HORIZ
 			cmp si, [bp+8]
-			je @@corner_left
+			je @@top_left_corner
 			cmp si, [bp+6]
-			je @@corner_right
+			je @@top_right_corner
 			jmp @@write
 
-@@corner_left:
+@@top_left_corner:
 			cmp byte ptr [bp+3], 0
-			jne @@bottom_left
+			jne @@bottom_left_corner
 			mov al, BOX_TOP_LEFT
 			jmp @@write
-@@bottom_left:
+@@bottom_left_corner:
 			mov al, BOX_BOTTOM_LEFT
 			jmp @@write
 
-@@corner_right:
+@@top_right_corner:
 			cmp byte ptr [bp+3], 0
-			jne @@bottom_right
+			jne @@bottom_right_corner
 			mov al, BOX_TOP_RIGHT
 			jmp @@write
-@@bottom_right:
+@@bottom_right_corner:
 			mov al, BOX_BOTTOM_RIGHT
+			jmp @@write
+@@use_user_char:
+			mov al, [user_frame_char]
 
 @@write:
 			mov ah, color_attr_green
@@ -252,16 +310,16 @@ DrawHorizontalBorder proc
 			pop dx
 			pop bx
 			ret
-DrawHorizontalBorder endp
+			endp
 
 ;-------------------------------------------------------------------------------
-; Description: Draws left vertical column (single symbol) at row AL, column BX
-; Entry: 	   AL = row number (12), BX = left column,
+; Description: Draws a vertical marker (single symbol) at given row and column
+; Entry: 	   AL = row number, BX = column,
 ;			   ES = videosegment, AH = attribute (not used)
-; Exit:        left column drawn
+; Exit:        marker drawn
 ; Destr:	   AX, DI
-;--------------------------------------------------------------------------------
-DrawLeftColumn proc
+;-------------------------------------------------------------------------------
+DrawVertBorder proc
 			push bx
 			push dx
 			push ax
@@ -274,42 +332,19 @@ DrawLeftColumn proc
 			shl ax, 1
 			mov di, ax
 
+			cmp [user_frame_char], 0
+			jne @@use_user
 			mov al, BOX_VERT
+			jmp @@write
+@@use_user:
+			mov al, [user_frame_char]
+@@write:
 			mov ah, color_attr_green
 			stosw
 
 			pop ax
 			pop dx
 			pop bx
-			ret
-			endp
-
-;-------------------------------------------------------------------------------
-; Description: Draws right vertical marker (single symbol) at row AL, column DX
-; Entry: 	   AL = row number (12), DX = right column,
-;			   ES = videosegment, AH = attribute (not used)
-; Exit:        right marker drawn
-; Destr:	   AX, DI
-;--------------------------------------------------------------------------------
-DrawRightColumn proc
-			push dx
-			push ax
-			mov bx, dx
-
-			mov ah, 0
-			mov di, ax
-			mov ax, 80
-			mul di
-			add ax, bx
-			shl ax, 1
-			mov di, ax
-
-			mov al, BOX_VERT
-			mov ah, color_attr_green
-			stosw
-
-			pop ax
-			pop dx
 			ret
 			endp
 
@@ -341,4 +376,8 @@ PrintString_pascal proc
 			ret 8
 PrintString_pascal endp
 
+user_frame_char db 0
+
 end 			Start
+
+
