@@ -164,10 +164,12 @@ DrawBox_cdecl proc
 @@right_ok:	;BX = left, DX = right
 
 			mov al, 11					; номер строки
-			call DrawTopLine
+			mov ch, 0
+			call DrawHorizontalBorder   ; верхняя граница
 
 			mov al, 13
-			call DrawBottomLine
+			mov ch, 1
+			call DrawHorizontalBorder   ; нижняя граница
 
 			mov al, 12
 			call DrawLeftColumn
@@ -182,114 +184,75 @@ DrawBox_cdecl proc
 DrawBox_cdecl endp
 
 ;-------------------------------------------------------------------------------
-; Description: Draws top border of the box (line 11)
-; Entry: 	   AL = row number (11), BX = left column, DX = right column,
-;			   ES = videosegment, AH = attribute (not used in this version,
-;			   but kept for consistency with original code)
-; Exit:        top border drawn
+; Description: Draws horizontal border (top or bottom) of the box
+; Entry: 	   AL = row number, BX = left column, DX = right column,
+;			   CH = 0 for top border, 1 for bottom border,
+;			   ES = videosegment, AH = attribute
+; Exit:        border drawn
 ; Destr:	   AX, CX, DI, SI
-;--------------------------------------------------------------------------------
-DrawTopLine proc
+;-------------------------------------------------------------------------------
+DrawHorizontalBorder proc
 			push bx
 			push dx
 			push ax
+			push cx
+			push bp
+			mov bp, sp		; теперь [bp] = старое bp, [bp+2] = cx, [bp+4] = ax, [bp+6] = dx, [bp+8] = bx
 
-			mov cx, dx
-			sub cx, bx
-			inc cx			; CX = number of symbols in line
-			mov si, bx		; SI = current column
+			mov bh, ch       ; сохраняем флаг (top/bottom) в BH, так как CH будет испорчен
 
-			pop ax			; restore row number (11)
-			push ax
-			push dx
+			mov cx, [bp+6]	; правая граница (DX)
+			sub cx, [bp+8]	; вычитаем левую границу (BX)
+			inc cx			; CX = количество символов в линии
+			mov si, [bp+8]
 
+			mov ax, [bp+4]
 			mov ah, 0
 			mov di, ax
 			mov ax, 80
 			mul di			; AX = row * 80
-			pop dx
-			add ax, bx
+			add ax, [bp+8]
 			shl ax, 1
 			mov di, ax		; DI = offset in video memory
 
 @@loop:
 			mov al, BOX_HORIZ
-			cmp si, bx
+			cmp si, [bp+8]
 			je @@corner_left
-			cmp si, dx
+			cmp si, [bp+6]
 			je @@corner_right
 			jmp @@write
+
 @@corner_left:
+			cmp byte ptr [bp+3], 0
+			jne @@bottom_left
 			mov al, BOX_TOP_LEFT
 			jmp @@write
-@@corner_right:
-			mov al, BOX_TOP_RIGHT
-@@write:
-			mov ah, color_attr_green
-			stosw
-			inc si
-			loop @@loop
-
-			pop ax
-			pop dx
-			pop bx
-			ret
-DrawTopLine endp
-
-;-------------------------------------------------------------------------------
-; Description: Draws bottom border of the box (line 13)
-; Entry: 	   AL = row number (13), BX = left column, DX = right column,
-;			   ES = videosegment, AH = attribute (not used)
-; Exit:        bottom border drawn
-; Destr:	   AX, CX, DI, SI
-;--------------------------------------------------------------------------------
-DrawBottomLine proc
-			push bx
-			push dx
-			push ax
-
-			mov cx, dx
-			sub cx, bx
-			inc cx
-			mov si, bx
-
-			pop ax
-			push ax
-
-			push dx
-
-			mov ah, 0
-			mov di, ax
-			mov ax, 80
-			mul di
-			pop dx
-			add ax, bx
-			shl ax, 1
-			mov di, ax
-
-@@loop:
-			mov al, BOX_HORIZ
-			cmp si, bx
-			je @@corner_left
-			cmp si, dx
-			je @@corner_right
-			jmp @@write
-@@corner_left:
+@@bottom_left:
 			mov al, BOX_BOTTOM_LEFT
 			jmp @@write
+
 @@corner_right:
+			cmp byte ptr [bp+3], 0
+			jne @@bottom_right
+			mov al, BOX_TOP_RIGHT
+			jmp @@write
+@@bottom_right:
 			mov al, BOX_BOTTOM_RIGHT
+
 @@write:
 			mov ah, color_attr_green
 			stosw
 			inc si
 			loop @@loop
 
+			pop bp
+			pop cx
 			pop ax
 			pop dx
 			pop bx
 			ret
-DrawBottomLine endp
+DrawHorizontalBorder endp
 
 ;-------------------------------------------------------------------------------
 ; Description: Draws left vertical column (single symbol) at row AL, column BX
