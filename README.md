@@ -17,7 +17,7 @@ tlink /t pr_cd_st.obj
 
 ## Format
 ```powershell
-    pr_cd_st.com <Text> '/' <FrameStyleSymbol (optional)>
+pr_cd_st.com <Text> '/' <FrameStyleSymbol (optional)>
 ```
 
 ## Examples
@@ -25,7 +25,7 @@ tlink /t pr_cd_st.obj
 ### Example 1
 Draw a frame with standard borders style with text "Standard Example"
 ```powershell
-    pr_cd_st.com Standard Example
+pr_cd_st.com Standard Example
 ```
 ![example](https://github.com/mmmxxxaaa/asm_strings/raw/5559dd62f97f3e0687f5ea1f4d4295490694b5f4/example_1.png)
 
@@ -33,6 +33,6 @@ Draw a frame with standard borders style with text "Standard Example"
 ### Example 2
 Draw a frame consisting of a character specified by the user with text "Specified Example"
 ```powershell
-    pr_cd_st.com Specified Example/@
+pr_cd_st.com Specified Example/@
 ```
 ![example](https://github.com/mmmxxxaaa/asm_strings/raw/5559dd62f97f3e0687f5ea1f4d4295490694b5f4/example_2.png)
