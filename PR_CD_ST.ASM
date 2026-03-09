@@ -4,6 +4,8 @@ org 100h
 
 locals @@
 
+VIDEOMEMORY		 equ 0b800h
+
 BOX_TOP_LEFT     equ 0C9h   ; ╔
 BOX_TOP_RIGHT    equ 0BBh   ; ╗
 BOX_BOTTOM_LEFT  equ 0C8h   ; ╚
@@ -11,14 +13,21 @@ BOX_BOTTOM_RIGHT equ 0BCh   ; ╝
 BOX_HORIZ        equ 0CDh   ; ═
 BOX_VERT         equ 0BAh   ; ║
 
-command_string_len_addr         equ 80h
-command_string_text_addr        equ 81h
-max_number_of_symbols_in_string equ 80
-max_number_of_symbols_in_column equ 26
-color_attr_green				equ 02h
+COMMAND_STRING_LEN_ADDR         equ 80h
+COMMAND_STRING_TEXT_ADDR        equ 81h
+SCREEN_WIDTH					equ 80
+SCREEN_HEIGHT       			equ 25
+SCREEN_SIZE        				equ SCREEN_WIDTH * SCREEN_HEIGHT
 
-;//FIXME если не найдется символ, то используются стандартные рамки, иначе символ, который идет после заданного символа
-;//FIXME
+COLOR_ATTR_GREEN   equ 02h
+COLOR_ATTR_CLEAR   equ 07h
+
+TEXT_ROW           equ 12
+TOP_BORDER_ROW     equ TEXT_ROW - 1
+BOTTOM_BORDER_ROW  equ TEXT_ROW + 1
+
+SYM_SPACE		   equ ' '
+
 Start:
 			call GetCommandLine
 			jc Exit								;CF = 1 => empty string
@@ -26,7 +35,7 @@ Start:
 			push cx
 			push si
 
-			mov al, '/' ;//про***бал кучу времени на дебаге того, что '|' воспринимается как оператор перенаправления
+			mov al, '/'
 			call StrChr
 
 			pop si
@@ -40,19 +49,19 @@ Start:
 			jmp @@continue
 
 @@found_user_frame_char:
-            mov di, si          ; копируем адрес начала строки
-            add di, cx          ; теперь DI указывает на символ после разделителя
-            mov al, [di]        ; читаем символ рамки
-            mov [user_frame_char], al ;//FIXME
-            dec cx              ; уменьшаем длину строки (убираем разделитель и символ)
+            mov di, si          		; копируем адрес начала строки
+            add di, cx          		; теперь DI указывает на символ после разделителя
+            mov al, [di]        		; читаем символ рамки
+            mov [user_frame_char], al
+            dec cx              		; уменьшаем длину строки (убираем разделитель и символ)
 
 @@continue:
 			push cx
-			mov ax, 0b800h
+			mov ax, VIDEOMEMORY
 			mov es, ax
 			call ClearScreen
 			pop cx
-			mov ah, color_attr_green			; giving attribute
+			mov ah, COLOR_ATTR_GREEN			; giving attribute
 			push ax
 
 			call CalculateCenteredPosition
@@ -90,8 +99,7 @@ Exit:		mov ax, 4C00h
 ; Destr:	   CX, SI
 ;--------------------------------------------------------------------------------
 GetCommandLine proc
-
-			mov si, command_string_len_addr
+			mov si, COMMAND_STRING_LEN_ADDR
 			mov cl, [si]
 			mov ch, 0					;CX = length
 			cmp cl, 0
@@ -106,7 +114,6 @@ GetCommandLine proc
 			cmp cx, 0
 			je @@empty
 			jmp @@skip_spaces
-
 @@no_space:
 			clc 			;CF=0 - success
 			ret
@@ -148,8 +155,8 @@ StrChr endp
 ;--------------------------------------------------------------------------------
 ClearScreen proc
 			xor di, di
-			mov ax, 0720h		; 20h - space
-			mov cx, 2000
+			mov ax, (ATTR_CLEAR shl 8) or SYM_SPACE
+			mov cx, SCREEN_SIZE
 			rep stosw			; writing ax into es:[di+=2] CX times
 			ret
 ClearScreen endp
@@ -164,13 +171,14 @@ ClearScreen endp
 ; Destr:	   AX, BX, DX, DI
 ;--------------------------------------------------------------------------------
 CalculateCenteredPosition proc
-			mov ax, max_number_of_symbols_in_string ;AX = 80
+			mov ax, SCREEN_WIDTH					;AX = 80
         	sub ax, cx                				;AX = 80 - length
         	shr ax, 1                				;AX = (80 - length)/2
 			mov dx, ax               				; dx = number of the first symbol's column
 			push dx
-			mov ax, 24 / 2
-			mov bx, max_number_of_symbols_in_string
+
+			mov ax, TEXT_ROW
+			mov bx, SCREEN_WIDTH
 			mul bx
 			pop dx
 			add ax, dx 				; AX = 12*80 + number of column
@@ -207,23 +215,23 @@ DrawBox_cdecl proc
 			xor bx, bx
 @@left_ok:
 			add dx, cx
-			cmp dx, 79
+			cmp dx, SCREEN_WIDTH - 1
 			jle @@right_ok
-			mov dx, 79
-@@right_ok:	;BX = left, DX = right
+			mov dx, SCREEN_WIDTH - 1
+@@right_ok:			;BX = left, DX = right
 
-			mov al, 11					; номер строки
+			mov al, TOP_BORDER_ROW					; номер строки
 			mov ch, 0
 			call DrawHorizontalBorder   ; верхняя граница
 
-			mov al, 13
+			mov al, BOTTOM_BORDER_ROW
 			mov ch, 1
 			call DrawHorizontalBorder   ; нижняя граница
 
-			mov al, 12
+			mov al, TEXT_ROW
 			call DrawVertBorder
 
-			mov al, 12
+			mov al, TEXT_ROW
 			mov bx, dx
 			call DrawVertBorder
 
@@ -241,8 +249,7 @@ DrawBox_cdecl endp
 ; Exit:        border drawn
 ; Destr:	   AX, CX, DI, SI
 ;-------------------------------------------------------------------------------
-;//FIXME как не через [bp+...]
-;//FIXME на эту функцию особое внимание
+
 DrawHorizontalBorder proc
 			push bx
 			push dx
@@ -261,7 +268,7 @@ DrawHorizontalBorder proc
 			mov ax, [bp+4]
 			mov ah, 0
 			mov di, ax
-			mov ax, 80
+			mov ax, SCREEN_WIDTH
 			mul di			; AX = row * 80
 			add ax, [bp+8]
 			shl ax, 1
@@ -279,7 +286,8 @@ DrawHorizontalBorder proc
 			jmp @@write
 
 @@top_left_corner:
-			cmp byte ptr [bp+3], 0
+			cmp bh, 0
+			;cmp byte ptr [bp+3], 0
 			jne @@bottom_left_corner
 			mov al, BOX_TOP_LEFT
 			jmp @@write
@@ -299,7 +307,7 @@ DrawHorizontalBorder proc
 			mov al, [user_frame_char]
 
 @@write:
-			mov ah, color_attr_green
+			mov ah, COLOR_ATTR_GREEN
 			stosw
 			inc si
 			loop @@loop
@@ -326,7 +334,7 @@ DrawVertBorder proc
 
 			mov ah, 0
 			mov di, ax
-			mov ax, 80
+			mov ax, SCREEN_WIDTH
 			mul di			; AX = row * 80
 			add ax, bx
 			shl ax, 1
@@ -339,7 +347,7 @@ DrawVertBorder proc
 @@use_user:
 			mov al, [user_frame_char]
 @@write:
-			mov ah, color_attr_green
+			mov ah, COLOR_ATTR_GREEN
 			stosw
 
 			pop ax
